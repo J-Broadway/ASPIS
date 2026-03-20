@@ -1,0 +1,1 @@
+- make `route` deterministic in CLI so route auto links to corresponding clause

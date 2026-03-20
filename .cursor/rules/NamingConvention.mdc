@@ -1,0 +1,37 @@
+---
+description: Naming and reorder conventions for design docs and research markdown files
+alwaysApply: true
+---
+
+# NamingConvention
+
+## Section Numbering Schema
+
+Documents use a three-part OR two-part numeric prefix: `XX.Y - {Optional Group Subject:} Title.md`
+
+- `XX` - major topic group (zero-padded, e.g. `01`, `10`)
+- `.Y` - minor position within a group (`.0` for primary; `.1`, `.2`, ... for inserted docs)
+- Example sequence: `05.0`, `05.1`, `05.2`
+
+Groub Subject is optional, use to group related documents together.
+
+Example:
+XX.Y - Figma Linter: Limitations.md
+XX.Y - Figma Linter: Token Studio Specification.md
+XX.Y - GPFP: GutenPress Figma Plugin Summary.md
+XX.Y - GPFP: Architecture Schema.md
+XX.Y - Styling Architecture.md
+
+
+## Renaming to preserve logical order
+
+- If a new doc must precede an existing minor-version doc, rename the existing one to make room.
+- Example: inserting a new `05.1` pushes the old `05.1` to `05.2`.
+- Use `@.cursor/_tools/rename_reorder.py` for all numbering rename/reorder operations.
+- Prefer deterministic CLI execution (`scan`, then `apply-spec`) over ad-hoc/manual renames.
+
+## Referencing design docs
+
+- When referencing design doc files, use the naming convention placeholder format (`XX.Y`) rather than hard-coded numbers.
+- Example reference style: `XX.Y - {Group Subject if used:} Title.md`
+- Reason: numeric prefixes are renumbered dynamically, and hard-coded numeric references can break after reorder operations.

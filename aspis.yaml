@@ -1,0 +1,10 @@
+workspace:
+  name: ASPIS
+  protocol_root: ASPIS
+  protocol_governance_doc: "ASPIS/0.00 - Governance: Origin.md"
+instances:
+  - namespace: demo
+    root: demo - ASPIS
+    governance_doc: "demo - ASPIS/0.00 - Governance: Origin.md"
+    lineage:
+      instance_type: aspis_instance
