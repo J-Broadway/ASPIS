@@ -76,6 +76,13 @@ def _resolve_workspace(
     return manifest, docs_root, gov, None
 
 
+def _parse_include_content(qs: Dict[str, List[str]]) -> bool:
+    raw = (_query_first(qs, "include_content") or "").strip().lower()
+    if not raw:
+        return False
+    return raw in ("true", "1", "yes")
+
+
 def _parse_after_seq_limit(qs: Dict[str, List[str]]) -> Tuple[Optional[int], Optional[int], Optional[bytes]]:
     raw_after = _query_first(qs, "after_seq") or "0"
     try:
@@ -167,14 +174,48 @@ class AspisVisualRequestHandler(BaseHTTPRequestHandler):
             self._send(200, b'{"status":"ok"}\n')
             return
 
+        if path == "/api/sessions":
+            _manifest, docs_root, _gov, err = _resolve_workspace(qs, cwd, workspace_defaults)
+            if err is not None:
+                self._send(400, err)
+                return
+            assert docs_root is not None
+            sessions_dir = workspace_runtime.sessions_root(docs_root)
+            result: List[Dict[str, Any]] = []
+            if sessions_dir.is_dir():
+                for entry in sorted(sessions_dir.iterdir()):
+                    if not entry.is_dir():
+                        continue
+                    sjson = entry / "session.json"
+                    if not sjson.is_file():
+                        continue
+                    try:
+                        state = workspace_runtime.read_json_file(sjson)
+                    except (OSError, json.JSONDecodeError):
+                        continue
+                    if not state.get("trace_enabled"):
+                        continue
+                    result.append(_session_meta_payload(state))
+            payload = {
+                "schema_version": VISUAL_API_SCHEMA_VERSION,
+                "sessions": result,
+            }
+            raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+            self._send(200, raw + b"\n")
+            return
+
         if path == "/api/graph":
             _manifest, docs_root, _gov, err = _resolve_workspace(qs, cwd, workspace_defaults)
             if err is not None:
                 self._send(400, err)
                 return
             assert docs_root is not None
+            include_content = _parse_include_content(qs)
             try:
-                doc = graph_export_runtime.build_registry_graph_document(docs_root)
+                doc = graph_export_runtime.build_registry_graph_document(
+                    docs_root,
+                    include_content=include_content,
+                )
             except (OSError, ValueError) as exc:
                 self._send(500, _error_body("REGISTRY_LOAD_FAILED", str(exc)))
                 return

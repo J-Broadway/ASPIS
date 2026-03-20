@@ -5,46 +5,46 @@ overview: |
 todos:
   - id: backend-content-support
     content: Add include_content query param to serve_aspis_visual.py GET /api/graph; register contract update in governance
-    status: pending
+    status: completed
   - id: scaffold-vite
     content: Create visualizer/ with Vite + TypeScript, three (CSS2DRenderer via three/examples/jsm/..., Line2 via three/examples/jsm/lines/...), d3-force; env VITE_ASPIS_API_BASE; README
-    status: pending
+    status: completed
   - id: types-api
     content: src/types.ts (graph/trace/session interfaces from schema contracts); src/api.ts (fetch graph with content, poll trace per session, fetch session meta)
-    status: pending
+    status: completed
   - id: layout-clustering
     content: "src/layout.ts: d3-force with forceCluster by namespace prefix; deterministic group positioning for aspis.tools.*, aspis.registry.*, aspis.clause.*, etc."
-    status: pending
+    status: completed
   - id: scene-setup
     content: "src/scene.ts: Three.js scene, PerspectiveCamera on +Y, OrbitControls with polar clamp, dark bg, fog, CSS2DRenderer overlay"
-    status: pending
+    status: completed
   - id: node-rendering
     content: "src/nodes.ts: distinct geometry per clause kind (sphere=contract, octahedron=route, dodecahedron=guidance, box=information); color by kind; entry node persistent glow ring"
-    status: pending
+    status: completed
   - id: edge-rendering
     content: "src/edges.ts: directed edges with arrow cone meshes at target; quadratic curve for bidirectional pairs; opacity scaling for high-degree hubs"
-    status: pending
+    status: completed
   - id: interaction
     content: "src/interaction.ts: Raycaster for click/hover; click→detail panel with clause content, paths, kind, registry_slots; hover→highlight connected edges; edge hover→from/to label"
-    status: pending
+    status: completed
   - id: multi-session-trace
     content: "src/tracePlayer.ts: support N session_ids, each with independent poll loop, distinct trail color, per-session visited set; URL accepts ?session=id1&session=id2"
-    status: pending
+    status: completed
   - id: playback-controls
     content: "src/playback.ts: play/pause/step, speed control (0.5x–4x), timeline scrub on merged virtual index (ts-ordered across sessions), replay-from-start; derives timing from trace ts deltas"
-    status: pending
+    status: completed
   - id: hud-panels
     content: "src/hud.ts: stats (node/edge counts, coverage%), session input, issue list, scrollable trace event log with click-to-flash, kind legend"
-    status: pending
+    status: completed
   - id: detail-panel
     content: "src/detailPanel.ts: slide-out panel showing clause content (markdown rendered), paths as clickable links, kind/status/meta badges, registry_slots"
-    status: pending
+    status: completed
   - id: style-theme
     content: "src/style.css: near-black bg, monospace font stack, cyan/magenta/amber accents, scanline overlay, panel styling, responsive layout"
-    status: pending
+    status: completed
   - id: governance-updates
     content: "5 governance changes: (1) add aspis.cli.help to aspis.entry paths, (2) update aspis.cli.help content + paths for visual workflow, (3) add visual-client to aspis.tools.session paths, (4) mutate aspis.tools.session.visual-http registry_slots for include_content, (5) register new aspis.tools.session.visual-client clause with full contract"
-    status: pending
+    status: completed
 isProject: false
 ---
 
