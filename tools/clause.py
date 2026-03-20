@@ -10,6 +10,8 @@ import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+_REGISTRY_MEMORY: Dict[str, Tuple[Dict[str, Dict[str, Any]], List[Dict[str, str]], Dict[str, float]]] = {}
+
 DOC_PREFIX_RE = re.compile(r"^(\d+\.\d+)\s*-\s*")
 SCHEMA_ID_RE = re.compile(r"^[a-z0-9_-]+(?:\.[a-z0-9_-]+)+\.(?:schema|interface)$", re.IGNORECASE)
 CLAUSE_ID_RE = re.compile(r"^[a-z0-9_-]+(?:\.[a-z0-9_-]+)+$", re.IGNORECASE)
@@ -552,6 +554,42 @@ def _index_clauses(docs_root: Path) -> Tuple[Dict[str, Dict[str, Any]], List[Dic
     return by_id, issues
 
 
+def collect_registry_mtimes(docs_root: Path) -> Dict[str, float]:
+    """Absolute normalized path -> mtime (epoch seconds) for markdown files under docs_root."""
+    mtimes: Dict[str, float] = {}
+    for doc in iter_markdown_docs(docs_root):
+        resolved = doc.resolve()
+        mtimes[resolved.as_posix()] = resolved.stat().st_mtime
+    return mtimes
+
+
+def load_registry_index(
+    docs_root: Path,
+) -> Tuple[Dict[str, Dict[str, Any]], List[Dict[str, str]], Dict[str, float]]:
+    by_id, issues = _index_clauses(docs_root)
+    mtimes = collect_registry_mtimes(docs_root)
+    return by_id, issues, mtimes
+
+
+def registry_memory_put(
+    session_id: str,
+    by_id: Dict[str, Dict[str, Any]],
+    issues: List[Dict[str, str]],
+    mtimes: Dict[str, float],
+) -> None:
+    _REGISTRY_MEMORY[session_id] = (by_id, issues, mtimes)
+
+
+def registry_memory_get(
+    session_id: str,
+) -> Optional[Tuple[Dict[str, Dict[str, Any]], List[Dict[str, str]], Dict[str, float]]]:
+    return _REGISTRY_MEMORY.get(session_id)
+
+
+def registry_memory_clear(session_id: str) -> None:
+    _REGISTRY_MEMORY.pop(session_id, None)
+
+
 def _rel_from_root(root: Path, path: Path) -> str:
     try:
         return path.resolve().relative_to(root.resolve()).as_posix()
@@ -598,12 +636,16 @@ def resolve_batch(
     *,
     docs_root: Path,
     governance_doc: Path,
+    preloaded: Optional[Tuple[Dict[str, Dict[str, Any]], List[Dict[str, str]]]] = None,
 ) -> Dict[str, Any]:
     """
     Resolve batch of clause IDs. Returns deterministic JSON envelope.
     """
     instance_root = governance_doc.parent.parent if governance_doc.parent else Path.cwd()
-    clauses, clause_parse_issues = _index_clauses(docs_root)
+    if preloaded is not None:
+        clauses, clause_parse_issues = preloaded[0], preloaded[1]
+    else:
+        clauses, clause_parse_issues = _index_clauses(docs_root)
 
     top_level_issues: List[Dict[str, str]] = []
     seen_issue_keys: set = set()

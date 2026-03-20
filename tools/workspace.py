@@ -5,7 +5,10 @@ Workspace manifest helpers for ASPIS protocol + instance discovery.
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -495,3 +498,63 @@ def make_manifest(
         protocol_governance_doc=protocol_governance_doc.resolve(),
         instances=list(instances),
     )
+
+
+def sessions_root(docs_root: Path) -> Path:
+    return (docs_root / ".aspis" / "sessions").resolve()
+
+
+def session_directory(docs_root: Path, session_id: str) -> Path:
+    return (sessions_root(docs_root) / session_id.strip()).resolve()
+
+
+def write_json_atomic(path: Path, data: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".aspis-", suffix=".json.tmp")
+    tmp_path = Path(tmp)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, separators=(",", ":"))
+            handle.write("\n")
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def append_jsonl_line(path: Path, obj: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(obj, separators=(",", ":")) + "\n"
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(line)
+
+
+def read_json_file(path: Path) -> Dict[str, Any]:
+    text = path.read_text(encoding="utf-8")
+    return json.loads(text)
+
+
+def resolve_authority_surface_for_session(
+    manifest: WorkspaceManifest,
+    docs_root: Path,
+    governance_doc: Path,
+) -> Tuple[str, str]:
+    """
+    Map resolved docs_root + governance_doc to (surface_kind, namespace).
+    Raises ValueError with message SESSION_AUTHORITY_AMBIGUOUS on mismatch.
+    """
+    dr = docs_root.resolve()
+    gd = governance_doc.resolve()
+    pr = manifest.protocol_root.resolve()
+    if dr == pr:
+        return "protocol", "aspis"
+    matches: List[AuthoritySurface] = []
+    for surface in manifest.instances:
+        if surface.docs_root.resolve() == dr and surface.governance_doc.resolve() == gd:
+            matches.append(surface)
+    if len(matches) == 1:
+        return "instance", matches[0].namespace
+    raise ValueError("SESSION_AUTHORITY_AMBIGUOUS")
