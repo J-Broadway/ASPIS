@@ -17,7 +17,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import clause as clause_runtime
+import graph_export as graph_export_runtime
 import lint as lint_runtime
+import session_store as session_store_runtime
+import trace_io as trace_io_runtime
 import workspace as workspace_runtime
 
 aliases = {
@@ -180,11 +183,11 @@ def _registry_cache_path(session_dir: Path) -> Path:
 
 
 def _trace_path(session_dir: Path) -> Path:
-    return (session_dir / "trace.jsonl").resolve()
+    return session_store_runtime.trace_file_path(session_dir)
 
 
 def _normalize_path_key(path: Path) -> str:
-    return path.resolve().as_posix()
+    return session_store_runtime.normalize_path_key(path)
 
 
 def _mtimes_dirty(stored: Optional[Dict[str, Any]], current: Dict[str, float]) -> bool:
@@ -273,37 +276,6 @@ def _merge_clauses_touched_success(
             if isinstance(entry, dict) and entry.get("status") == "ok":
                 merged.add(rid_l)
     return sorted(merged)
-
-
-def _graphviz_dot_from_trace_file(trace_path: Path) -> str:
-    edges: Set[Tuple[str, str]] = set()
-    vertices: Set[str] = set()
-    for raw_line in trace_path.read_text(encoding="utf-8").splitlines():
-        raw_line = raw_line.strip()
-        if not raw_line:
-            continue
-        try:
-            obj = json.loads(raw_line)
-        except json.JSONDecodeError:
-            continue
-        for from_id, to_list in (obj.get("paths_by_id") or {}).items():
-            if from_id:
-                vertices.add(str(from_id))
-            if not isinstance(to_list, list):
-                continue
-            for to_id in to_list:
-                vertices.add(str(to_id))
-                edges.add((str(from_id), str(to_id)))
-    lines = ["digraph aspis_session {", '  rankdir="LR";']
-    for v in sorted(vertices):
-        safe = v.replace("\\", "\\\\").replace('"', '\\"')
-        lines.append(f'  "{safe}";')
-    for a, b in sorted(edges):
-        sa = a.replace("\\", "\\\\").replace('"', '\\"')
-        sb = b.replace("\\", "\\\\").replace('"', '\\"')
-        lines.append(f'  "{sa}" -> "{sb}";')
-    lines.append("}")
-    return "\n".join(lines) + "\n"
 
 
 def _parse_session_start_argv(argv: List[str]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -483,6 +455,56 @@ def _parse_session_end_argv(argv: List[str]) -> Tuple[Optional[Dict[str, Any]], 
     return options, None
 
 
+def _parse_visual_graph_argv(argv: List[str]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    options: Dict[str, Any] = {
+        "config": None,
+        "design_docs_dir": None,
+        "governance_doc": None,
+        "include_content": False,
+    }
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--include-content":
+            options["include_content"] = True
+            index += 1
+            continue
+        if arg == "--config":
+            if index + 1 >= len(argv) or argv[index + 1].startswith("-"):
+                return None, "Option '--config' requires a value."
+            options["config"] = argv[index + 1]
+            index += 2
+            continue
+        if arg.startswith("--config="):
+            options["config"] = arg.partition("=")[2].strip()
+            index += 1
+            continue
+        if arg == "--design-docs-dir":
+            if index + 1 >= len(argv) or argv[index + 1].startswith("-"):
+                return None, "Option '--design-docs-dir' requires a value."
+            options["design_docs_dir"] = argv[index + 1]
+            index += 2
+            continue
+        if arg.startswith("--design-docs-dir="):
+            options["design_docs_dir"] = arg.partition("=")[2].strip()
+            index += 1
+            continue
+        if arg == "--governance-doc":
+            if index + 1 >= len(argv) or argv[index + 1].startswith("-"):
+                return None, "Option '--governance-doc' requires a value."
+            options["governance_doc"] = argv[index + 1]
+            index += 2
+            continue
+        if arg.startswith("--governance-doc="):
+            options["governance_doc"] = arg.partition("=")[2].strip()
+            index += 1
+            continue
+        if arg.startswith("-"):
+            return None, f"Unknown option: '{arg}'"
+        return None, f"Unexpected positional argument: '{arg}'"
+    return options, None
+
+
 def _parse_simple_subcommand_args(argv: List[str], option_names: Dict[str, str]) -> Dict[str, Optional[str]]:
     options: Dict[str, Optional[str]] = {value: None for value in option_names.values()}
     index = 0
@@ -599,7 +621,7 @@ def _handle_init(argv: List[str]) -> int:
 
 def _handle_lint(argv: List[str]) -> int:
     try:
-        options: Dict[str, Optional[str]] = {"config": None, "target": None}
+        options: Dict[str, Any] = {"config": None, "target": None, "protocol_only": False}
         positionals: List[str] = []
         index = 0
         while index < len(argv):
@@ -616,6 +638,10 @@ def _handle_lint(argv: List[str]) -> int:
                 options["target"] = argv[index + 1]
                 index += 2
                 continue
+            if arg == "--protocol-only":
+                options["protocol_only"] = True
+                index += 1
+                continue
             if arg.startswith("--config="):
                 options["config"] = arg.partition("=")[2].strip()
                 index += 1
@@ -629,64 +655,25 @@ def _handle_lint(argv: List[str]) -> int:
             positionals.append(arg)
             index += 1
 
+        if options.get("protocol_only") and (options.get("target") or positionals):
+            raise ValueError("Do not combine --protocol-only with a target selector.")
         if options.get("target") and positionals:
             raise ValueError("Use either positional target or --target, not both.")
         if len(positionals) > 1:
             raise ValueError("lint accepts at most one positional target selector.")
         target = options.get("target") or (positionals[0] if positionals else None)
-        payload = lint_runtime.run_lint(options.get("config"), Path.cwd(), target)
+        payload = lint_runtime.run_lint(
+            options.get("config"),
+            Path.cwd(),
+            target,
+            protocol_only=bool(options.get("protocol_only")),
+        )
     except (FileNotFoundError, OSError, ValueError) as exc:
         payload = _lint_error_payload(str(exc))
     _write_json(payload)
     if payload.get("status") == "error" and payload.get("blocking"):
         return 2
     return 0
-
-
-def _session_paths_match(
-    state: Dict[str, Any],
-    config_path: Path,
-    docs_root: Path,
-    governance_doc: Path,
-) -> bool:
-    return (
-        _normalize_path_key(Path(str(state.get("config_path", "")))) == _normalize_path_key(config_path)
-        and _normalize_path_key(Path(str(state.get("docs_root", "")))) == _normalize_path_key(docs_root)
-        and _normalize_path_key(Path(str(state.get("governance_doc", "")))) == _normalize_path_key(governance_doc)
-    )
-
-
-def _candidate_session_dirs(
-    manifest: workspace_runtime.WorkspaceManifest,
-    session_id: str,
-) -> List[Path]:
-    candidates = [workspace_runtime.session_directory(manifest.protocol_root, session_id)]
-    candidates.extend(workspace_runtime.session_directory(surface.docs_root, session_id) for surface in manifest.instances)
-    unique: List[Path] = []
-    seen: Set[str] = set()
-    for path in candidates:
-        key = _normalize_path_key(path)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(path)
-    return unique
-
-
-def _locate_session_dir(
-    manifest: workspace_runtime.WorkspaceManifest,
-    docs_root: Path,
-    session_id: str,
-) -> Tuple[Optional[Path], bool]:
-    expected = workspace_runtime.session_directory(docs_root, session_id)
-    if expected.is_dir() and (expected / "session.json").is_file():
-        return expected, False
-    for candidate in _candidate_session_dirs(manifest, session_id):
-        if candidate == expected:
-            continue
-        if candidate.is_dir() and (candidate / "session.json").is_file():
-            return candidate, True
-    return None, False
 
 
 def _load_registry_for_session(
@@ -854,7 +841,7 @@ def _handle_session_cmd(argv: List[str]) -> int:
         return 2
 
     config_path = manifest.config_path.resolve()
-    session_dir, found_elsewhere = _locate_session_dir(manifest, docs_root, session_id)
+    session_dir, found_elsewhere = session_store_runtime.locate_session_dir(manifest, docs_root, session_id)
     if found_elsewhere:
         _write_json(_error_payload(
             "SESSION_CONFIG_MISMATCH",
@@ -874,7 +861,7 @@ def _handle_session_cmd(argv: List[str]) -> int:
         _write_json(_error_payload("SESSION_NOT_FOUND", str(exc)))
         return 2
 
-    if not _session_paths_match(state, config_path, docs_root, governance_doc):
+    if not session_store_runtime.session_paths_match(state, config_path, docs_root, governance_doc):
         _write_json(_error_payload(
             "SESSION_CONFIG_MISMATCH",
             "Current workspace flags do not match the session authority snapshot.",
@@ -971,7 +958,7 @@ def _handle_session_end(argv: List[str]) -> int:
         return 2
 
     config_path = manifest.config_path.resolve()
-    session_dir, found_elsewhere = _locate_session_dir(manifest, docs_root, session_id)
+    session_dir, found_elsewhere = session_store_runtime.locate_session_dir(manifest, docs_root, session_id)
     if found_elsewhere:
         _write_json(_error_payload(
             "SESSION_CONFIG_MISMATCH",
@@ -991,7 +978,7 @@ def _handle_session_end(argv: List[str]) -> int:
         _write_json(_error_payload("SESSION_NOT_FOUND", str(exc)))
         return 2
 
-    if not _session_paths_match(state, config_path, docs_root, governance_doc):
+    if not session_store_runtime.session_paths_match(state, config_path, docs_root, governance_doc):
         _write_json(_error_payload(
             "SESSION_CONFIG_MISMATCH",
             "Current workspace flags do not match the session authority snapshot.",
@@ -1064,7 +1051,7 @@ def _handle_session_end(argv: List[str]) -> int:
         out_path = (cwd / out_path).resolve()
     else:
         out_path = out_path.resolve()
-    dot_body = _graphviz_dot_from_trace_file(trace_file)
+    dot_body = trace_io_runtime.graphviz_dot_from_trace_file(trace_file)
     out_path.write_text(dot_body, encoding="utf-8")
     payload = {
         "status": "ok",
@@ -1073,6 +1060,35 @@ def _handle_session_end(argv: List[str]) -> int:
         "ended_at": ended_at,
     }
     _write_json(payload)
+    return 0
+
+
+def _handle_visual_graph(argv: List[str]) -> int:
+    opts, err = _parse_visual_graph_argv(argv)
+    if err:
+        _write_json(_error_payload("INVALID_INPUT", err))
+        return 2
+    assert opts is not None
+    cwd = Path.cwd()
+    try:
+        _manifest, docs_root, _governance_doc = _resolve_clause_runtime_paths_with_manifest(
+            opts.get("design_docs_dir"),
+            opts.get("governance_doc"),
+            opts.get("config"),
+            cwd,
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        _write_json(_error_payload("PATH_RESOLUTION", str(exc)))
+        return 2
+    try:
+        doc = graph_export_runtime.build_registry_graph_document(
+            docs_root,
+            include_content=bool(opts.get("include_content")),
+        )
+    except (OSError, ValueError) as exc:
+        _write_json(_error_payload("REGISTRY_LOAD_FAILED", str(exc)))
+        return 2
+    _write_json(doc)
     return 0
 
 
@@ -1114,6 +1130,8 @@ def main() -> int:
         return _handle_session_cmd(argv[1:])
     if argv and argv[0].lower() == "session:end":
         return _handle_session_end(argv[1:])
+    if argv and argv[0].lower() == "visual:graph":
+        return _handle_visual_graph(argv[1:])
     return _handle_clause(argv)
 
 

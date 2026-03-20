@@ -4,19 +4,19 @@ overview: Extend the Python tooling with (1) a stable JSON export of the full cl
 todos:
   - id: graph-export-cli
     content: Add top-level CLI command to emit full registry graph JSON (nodes + edges from paths) using load_registry_index + workspace resolution
-    status: pending
+    status: completed
   - id: session-store-refactor
     content: Extract session locate + session.json path validation from aspis.py into shared module; keep CLI behavior identical
-    status: pending
+    status: completed
   - id: trace-incremental-read
     content: "Add JSONL helpers: read events with seq > after_seq; optionally dedupe graphviz edge merge for reuse"
-    status: pending
+    status: completed
   - id: http-bridge
     content: "Add stdlib HTTP server script: /health, /api/graph, /api/session/{id}/meta, /api/session/{id}/trace?after_seq=&limit="
-    status: pending
+    status: completed
   - id: tests
     content: Subprocess/unit tests for graph export shape and trace API helper; re-run test_session_tracing.py
-    status: pending
+    status: completed
 isProject: false
 ---
 

@@ -246,21 +246,38 @@ def _build_lint_result(
     doc_paths: List[Path],
     clauses: Dict[str, Dict[str, Any]],
     target_selector: Optional[str],
+    *,
+    protocol_only: bool = False,
 ) -> Dict[str, Any]:
     sorted_issues = _sort_issues(issues)
     blocking = bool(sorted_issues)
     selector = (target_selector or "").strip()
-    if selector:
-        selection_source = "explicit_target"
+    if protocol_only:
+        protocol_surface = surfaces[0]
+        authority_context = {
+            "surface_kind": "protocol",
+            "target_namespace": protocol_surface.namespace,
+            "selection_source": "protocol_only",
+        }
+    elif selector:
+        authority_context = {
+            "surface_kind": target_instance.surface_kind,
+            "target_namespace": target_instance.namespace,
+            "selection_source": "explicit_target",
+        }
     elif len(manifest.instances) == 1:
-        selection_source = "inferred_single_instance"
+        authority_context = {
+            "surface_kind": target_instance.surface_kind,
+            "target_namespace": target_instance.namespace,
+            "selection_source": "inferred_single_instance",
+        }
     else:
-        selection_source = "unresolved"
-    authority_context = {
-        "surface_kind": target_instance.surface_kind,
-        "target_namespace": target_instance.namespace,
-        "selection_source": selection_source,
-    }
+        authority_context = {
+            "surface_kind": target_instance.surface_kind,
+            "target_namespace": target_instance.namespace,
+            "selection_source": "unresolved",
+        }
+    instance_surfaces = 0 if protocol_only else 1
     return {
         "status": "error" if blocking else "ok",
         "blocking": blocking,
@@ -270,11 +287,12 @@ def _build_lint_result(
         "authority_context": authority_context,
         "summary": {
             "protocol_surfaces": 1,
-            "instance_surfaces": 1,
+            "instance_surfaces": instance_surfaces,
+            "protocol_only": protocol_only,
             "documents": len(doc_paths),
             "registered_clauses": len(clauses),
             "namespaces": sorted(surface.namespace for surface in surfaces),
-            "target_namespace": target_instance.namespace,
+            "target_namespace": authority_context["target_namespace"],
             "authority_context": authority_context,
         },
         "source_authority": {
@@ -374,12 +392,25 @@ def _validate_reference_resolution(
     return issues
 
 
-def run_lint(config: Optional[str], cwd: Path, target: Optional[str] = None) -> Dict[str, Any]:
+def run_lint(
+    config: Optional[str],
+    cwd: Path,
+    target: Optional[str] = None,
+    *,
+    protocol_only: bool = False,
+) -> Dict[str, Any]:
     manifest = workspace_runtime.load_workspace_manifest(config, cwd)
     protocol_surface = workspace_runtime.resolve_protocol_surface(manifest)
-    target_instance = workspace_runtime.select_target_instance(manifest, target)
-    target_registry_path = workspace_runtime.instance_registry_path(target_instance)
-    surfaces = [protocol_surface, target_instance]
+    if not manifest.instances:
+        raise ValueError("aspis lint requires at least one configured instance in aspis.yaml.")
+    if protocol_only:
+        target_instance = manifest.instances[0]
+        target_registry_path = workspace_runtime.instance_registry_path(target_instance)
+        surfaces = [protocol_surface]
+    else:
+        target_instance = workspace_runtime.select_target_instance(manifest, target)
+        target_registry_path = workspace_runtime.instance_registry_path(target_instance)
+        surfaces = [protocol_surface, target_instance]
 
     issues: List[Dict[str, Any]] = []
     namespaces_seen: Dict[str, str] = {}
@@ -430,7 +461,11 @@ def run_lint(config: Optional[str], cwd: Path, target: Optional[str] = None) -> 
     issues.extend(_validate_surface_namespaces(clauses, source_to_surface, manifest.workspace_root))
     issues.extend(_validate_reference_resolution(clauses, set(clauses.keys()), manifest.workspace_root))
 
-    can_build_registry = ("protocol" in surface_details) and (target_instance.namespace in surface_details)
+    can_build_registry = (
+        (not protocol_only)
+        and ("protocol" in surface_details)
+        and (target_instance.namespace in surface_details)
+    )
     if can_build_registry:
         registry_payload = build_registry_payload(
             manifest,
@@ -451,11 +486,12 @@ def run_lint(config: Optional[str], cwd: Path, target: Optional[str] = None) -> 
         doc_paths,
         clauses,
         target,
+        protocol_only=protocol_only,
     )
 
 
-def _parse_args(argv: List[str]) -> Dict[str, Optional[str]]:
-    options: Dict[str, Optional[str]] = {"config": None, "target": None}
+def _parse_args(argv: List[str]) -> Dict[str, Any]:
+    options: Dict[str, Any] = {"config": None, "target": None, "protocol_only": False}
     positionals: List[str] = []
     index = 0
     while index < len(argv):
@@ -466,6 +502,10 @@ def _parse_args(argv: List[str]) -> Dict[str, Optional[str]]:
             options["config"] = argv[index + 1]
             index += 2
             continue
+        if arg == "--protocol-only":
+            options["protocol_only"] = True
+            index += 1
+            continue
         if arg.startswith("--config="):
             options["config"] = arg.partition("=")[2].strip()
             index += 1
@@ -474,6 +514,8 @@ def _parse_args(argv: List[str]) -> Dict[str, Optional[str]]:
             raise ValueError(f"Unknown option: '{arg}'")
         positionals.append(arg)
         index += 1
+    if options.get("protocol_only") and positionals:
+        raise ValueError("Do not combine --protocol-only with a positional target selector.")
     if len(positionals) > 1:
         raise ValueError("lint accepts at most one positional target selector.")
     if positionals:
@@ -489,7 +531,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     try:
         options = _parse_args(raw_argv)
-        payload = run_lint(options.get("config"), Path.cwd(), options.get("target"))
+        payload = run_lint(
+            options.get("config"),
+            Path.cwd(),
+            options.get("target"),
+            protocol_only=bool(options.get("protocol_only")),
+        )
     except (FileNotFoundError, OSError, ValueError) as exc:
         payload = {
             "status": "error",
