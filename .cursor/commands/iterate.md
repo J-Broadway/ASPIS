@@ -28,6 +28,8 @@ Kwargs:
     - `GPT-5.3 Codex`
     - `composer-2`
     - `Composer 2`
+    - `composer-2-fast`
+    - `Composer 2 fast`
 - `loop_limit` (optional): maximum number of review iterations. Default: `7`
 
 Emissary profile mapping:
@@ -36,7 +38,8 @@ Emissary profile mapping:
 - If `emissary` matches any Opus 4.6 alias above, use the `emissary-opus-4-6` subagent.
 - If `emissary` matches any GPT-5.3 alias above, use the `emissary-gpt-5-3` subagent.
 - If `emissary` matches any GPT-5.3 Codex alias above, use the `emissary-gpt-5-3-codex` subagent.
-- If `emissary` matches any Composer 2 alias above, use the `emissary-composer-2` subagent.
+- If `emissary` matches any Composer 2 fast alias above, use the `emissary-composer-2-fast` subagent.
+- If `emissary` matches any other Composer 2 alias above, use the `emissary-composer-2` subagent.
 - If the requested emissary profile has no matching subagent file, stop and ask the user to create or choose one.
 
 Execution contract:
@@ -80,6 +83,10 @@ Output requirements:
 - List any issues promoted for user supervision, keyed by issue ID.
 - List any unresolved gaps or risks that remain.
 - State whether diminishing returns was assessed, and if termination occurred on that basis, briefly explain why.
+
+Subagent model note (Cursor behavior):
+- In `.cursor/agents/*.md`, `model: fast` is **not** the same thing as “Composer 2 Fast” in the model picker. `fast` is Cursor’s generic speed-optimized subagent tier; the UI may still show “Composer 2” or match the parent agent.
+- For a Composer-2-Fast-shaped emissary, `emissary-composer-2-fast` uses an explicit model id (`composer-2-fast` in frontmatter). Confirm that slug under **Cursor Settings → Models**; rename it in the agent file if Cursor ships a different id. If the UI still shows plain Composer 2, your build may be ignoring subagent `model` (known issue on some plans/builds—see [Cursor subagent docs](https://cursor.com/docs/agent/subagents) FAQ and forum threads on “subagent configured model not honored”). Until that is fixed, the parent chat’s selected model may override.
 
 Behavioral constraints:
 - The `Emissary` is a critic, not the owner of the artifact.
